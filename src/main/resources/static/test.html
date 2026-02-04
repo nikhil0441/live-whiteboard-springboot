@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Whiteboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 2px solid black;
+            display: block;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Live Whiteboard (Keyboard)</h2>
+<p>
+    Arrow keys → move cursor <br>
+    SPACE → draw black dot
+</p>
+
+<canvas id="board" width="800" height="500"></canvas>
+
+<!-- SockJS & STOMP -->
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
+<script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+
+    let stompClient = null;
+
+    let cursorX = 400;
+    let cursorY = 250;
+    const step = 10;
+
+    // =======================
+    // WebSocket Connection
+    // =======================
+    function connectWebSocket() {
+        const socket = new SockJS('/ws');
+        stompClient = Stomp.over(socket);
+
+        stompClient.connect({}, function () {
+            console.log("WebSocket Connected");
+
+            stompClient.subscribe("/topic/whiteboard", function (data) {
+                const point = JSON.parse(data.body);
+                drawDot(point.x, point.y);
+            });
+        });
+    }
+
+    // =======================
+    // Load dots from DB (on refresh)
+    // =======================
+    function loadSavedDots() {
+        fetch("/api/draw-events")
+            .then(res => res.json())
+            .then(data => {
+                data.forEach(point => {
+                    drawDot(point.x, point.y);
+                });
+            });
+    }
+
+    // =======================
+    // Keyboard Handling
+    // =======================
+    document.addEventListener("keydown", (event) => {
+        event.preventDefault();
+
+        switch (event.key) {
+            case "ArrowUp":
+                cursorY -= step;
+                break;
+            case "ArrowDown":
+                cursorY += step;
+                break;
+            case "ArrowLeft":
+                cursorX -= step;
+                break;
+            case "ArrowRight":
+                cursorX += step;
+                break;
+            case " ":
+                // 🔥 Draw immediately (optimistic UI)
+                drawDot(cursorX, cursorY);
+
+                // 🔥 Send to backend (save + broadcast)
+                stompClient.send("/app/draw", {}, JSON.stringify({
+                    x: cursorX,
+                    y: cursorY
+                }));
+                return;
+        }
+
+        drawCursor();
+    });
+
+    // =======================
+    // Draw Cursor (gray)
+    // =======================
+    function drawCursor() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // cursor
+        ctx.fillStyle = "gray";
+        ctx.beginPath();
+        ctx.arc(cursorX, cursorY, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // =======================
+    // Draw Dot (black)
+    // =======================
+    function drawDot(x, y) {
+        ctx.fillStyle = "black";
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // =======================
+    // Init
+    // =======================
+    connectWebSocket();
+    loadSavedDots();
+    drawCursor();
+</script>
+
+</body>
+</html>
